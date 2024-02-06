@@ -50,7 +50,7 @@ typedef struct{
 	int blue;
 } values;
 
-#define SERVER_ADDR "192.168.1.146"
+#define SERVER_ADDR "192.168.50.246"
 char msg_rec[5000];
 int socket_fd;
 struct sockaddr_in server_addr, client_addr;
@@ -77,21 +77,42 @@ int main() {
 }
 
 void message_callback(mqtt::const_message_ptr msg) {
-	std::cout << "MSG_RECEIVED: " << msg->get_payload_str() << std::endl;
-
+	std::cout << "[MQTT] Message received: " << msg->get_payload_str() << std::endl;
+	/*
 	ofstream mqtt_log("/var/log/mqtt_log.txt");
 
 	time_t now = time(0); // get current dat/time with respect to system.
 	char* dt = ctime(&now); // convert it into string.
 
 	mqtt_log << "[MQTT] Message received" << ": " << msg->get_payload_str() << " at " << dt << endl;
+
+	mqtt_log.close();
+	*/
 	Json::Value root;
 	Json::Reader reader;
 	if(!reader.parse(msg->get_payload_str(), root)){
 		cerr << "Error parsing the JSON" << endl;
 	}
+	Json::FastWriter fastWriter;
+	std::string method = fastWriter.write(root["method"]);
+	std::string comparation = "\"setwaterLevel\"\n";
 
-	mqtt_log.close();
+	if(method.compare("\"setwaterLevel\"\n") == 0 ){
+		cout << "Setting water actuator to:" << root["params"]["mode"] << endl;
+	}else if(method.compare("\"getLightMode\"\n") == 0){
+		cout << "light" << endl;
+	}else if(method.compare("\"setTDS\"\n") == 0){
+		cout << "Setting TDS actuator to: " << root["params"]["mode"] << endl;
+	}else if(method.compare("\"setpH\"\n") == 0){
+		cout << "Setting PH actuator to: " << root["params"]["mode"] << endl;
+	}else if(method.compare("\"setTemperature\"\n") == 0){
+		cout << "Setting Temperature actuator to: " << root["params"]["mode"] << endl;
+	}else if(method.compare("\"setHumidity\"\n") == 0){
+		cout << "Setting Humidity actuator to: " << root["params"]["mode"] << endl;
+	}else{
+		cout << "RPC Not recognised" << endl;
+	}
+
 
 }
 
@@ -198,7 +219,7 @@ void udp_thread(){
 
 		msg_rec[size] = '\0';
 
-		cout << "Message is: " << msg_rec << endl;
+		cout << "[UDP] Message received: " << msg_rec << endl;
 
 		time_t now = time(0); // get current dat/time with respect to system.
 		char* dt = ctime(&now); // convert it into string.
@@ -217,7 +238,7 @@ void udp_thread(){
 void signalHandler( int signum ) {
 
 	printf("Ending program\n");
-	//client.disconnect(2000);
+	client.disconnect(2000);
 
 	close(socket_fd);
 	cout << "The file has been closed successfully!" << endl;
