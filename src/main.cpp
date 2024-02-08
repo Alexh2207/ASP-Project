@@ -51,6 +51,14 @@ typedef struct{
 } values;
 
 #define SERVER_ADDR "192.168.50.246"
+
+const uint8_t humid_act = 0xFD;
+const uint8_t temp_act = 0xFC;
+const uint8_t waterlev_act = 0xFB;
+const uint8_t tds_act = 0xFA;
+const uint8_t ph_act = 0xF9;
+const uint8_t light_act = 0xF8;
+
 char msg_rec[5000];
 int socket_fd;
 struct sockaddr_in server_addr, client_addr;
@@ -99,16 +107,42 @@ void message_callback(mqtt::const_message_ptr msg) {
 
 	if(method.compare("\"setwaterLevel\"\n") == 0 ){
 		cout << "Setting water actuator to:" << root["params"]["mode"] << endl;
+		uint8_t packet[] = {waterlev_act,root["params"]["mode"].asInt()};
+		socklen_t len;
+
+		len = sizeof(client_addr);
+		sendto(socket_fd, (char *) packet, 2, MSG_CONFIRM, (const struct sockaddr*) &client_addr, len);
+
 	}else if(method.compare("\"getLightMode\"\n") == 0){
 		cout << "light" << endl;
 	}else if(method.compare("\"setTDS\"\n") == 0){
 		cout << "Setting TDS actuator to: " << root["params"]["mode"] << endl;
+		uint8_t packet[] = {tds_act,root["params"]["mode"].asInt()};
+		socklen_t len;
+
+		len = sizeof(client_addr);
+		sendto(socket_fd, (char *) packet, 2, MSG_CONFIRM, (const struct sockaddr*) &client_addr, len);
 	}else if(method.compare("\"setpH\"\n") == 0){
 		cout << "Setting PH actuator to: " << root["params"]["mode"] << endl;
+		uint8_t packet[] = {ph_act,root["params"]["mode"].asInt()};
+		socklen_t len;
+
+		len = sizeof(client_addr);
+		sendto(socket_fd, (char *) packet, 2, MSG_CONFIRM, (const struct sockaddr*) &client_addr, len);
 	}else if(method.compare("\"setTemperature\"\n") == 0){
 		cout << "Setting Temperature actuator to: " << root["params"]["mode"] << endl;
+		uint8_t packet[] = {temp_act,root["params"]["mode"].asInt()};
+		socklen_t len;
+
+		len = sizeof(client_addr);
+		sendto(socket_fd, (char *) packet, 2, MSG_CONFIRM, (const struct sockaddr*) &client_addr, len);
 	}else if(method.compare("\"setHumidity\"\n") == 0){
 		cout << "Setting Humidity actuator to: " << root["params"]["mode"] << endl;
+		uint8_t packet[] = {humid_act,root["params"]["mode"].asInt()};
+		socklen_t len;
+
+		len = sizeof(client_addr);
+		sendto(socket_fd, (char *) packet, 2, MSG_CONFIRM, (const struct sockaddr*) &client_addr, len);
 	}else{
 		cout << "RPC Not recognised" << endl;
 	}
