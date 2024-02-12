@@ -39,9 +39,15 @@ std::string address = "ssl://srv-iot.diatel.upm.es:8883",
 mqtt::async_client client(address, client_name);
 
 typedef struct{
-	float temperature;
-	int humidity;
-	long light;
+	float temperatureMax;
+	float temperatureMin;
+	float temperatureMean;
+	int humidityMean;
+	int humidityMax;
+	int humidityMin;
+	long lightMax;
+	long lightMin;
+	long lightMean;
 	float ph;
 	int tds;
 	int water_lev;
@@ -49,6 +55,15 @@ typedef struct{
 	int green;
 	int blue;
 } values;
+
+typedef struct{
+	int lightAct;
+	int humidIsOn;
+	int airCondIsOn;
+	int valveIsOpen;
+	int phControllerIsOn;
+} actuators_t;
+
 
 #define SERVER_ADDR "192.168.50.246"
 
@@ -61,8 +76,12 @@ const uint8_t light_act = 0xF8;
 
 char msg_rec[5000];
 int socket_fd;
+struct sockaddr_in clients[255];
 struct sockaddr_in server_addr, client_addr;
 Thread_queue<values> val_q;
+Thread_queue<int> msg_rec_notif;
+Thread_queue<actuators_t> act_q;
+int client_count = 0;
 
 using namespace std;
 
@@ -86,16 +105,7 @@ int main() {
 
 void message_callback(mqtt::const_message_ptr msg) {
 	std::cout << "[MQTT] Message received: " << msg->get_payload_str() << std::endl;
-	/*
-	ofstream mqtt_log("/var/log/mqtt_log.txt");
 
-	time_t now = time(0); // get current dat/time with respect to system.
-	char* dt = ctime(&now); // convert it into string.
-
-	mqtt_log << "[MQTT] Message received" << ": " << msg->get_payload_str() << " at " << dt << endl;
-
-	mqtt_log.close();
-	*/
 	Json::Value root;
 	Json::Reader reader;
 	if(!reader.parse(msg->get_payload_str(), root)){
@@ -111,17 +121,19 @@ void message_callback(mqtt::const_message_ptr msg) {
 		socklen_t len;
 
 		len = sizeof(client_addr);
-		sendto(socket_fd, (char *) packet, 2, MSG_CONFIRM, (const struct sockaddr*) &client_addr, len);
+		for(int i=0; i < client_count; i++){
+			sendto(socket_fd, (char *) packet, 2, MSG_CONFIRM, (const struct sockaddr*) &clients[i], len);
+		}
 
-	}else if(method.compare("\"getLightMode\"\n") == 0){
-		cout << "light" << endl;
 	}else if(method.compare("\"setTDS\"\n") == 0){
 		cout << "Setting TDS actuator to: " << root["params"]["mode"] << endl;
 		uint8_t packet[] = {tds_act,root["params"]["mode"].asInt()};
 		socklen_t len;
 
 		len = sizeof(client_addr);
-		sendto(socket_fd, (char *) packet, 2, MSG_CONFIRM, (const struct sockaddr*) &client_addr, len);
+		for(int i=0; i < client_count; i++){
+			sendto(socket_fd, (char *) packet, 2, MSG_CONFIRM, (const struct sockaddr*) &clients[i], len);
+		}
 	}else if(method.compare("\"setpH\"\n") == 0){
 		cout << "Setting PH actuator to: " << root["params"]["mode"] << endl;
 		uint8_t packet[] = {ph_act,root["params"]["mode"].asInt()};
@@ -135,14 +147,27 @@ void message_callback(mqtt::const_message_ptr msg) {
 		socklen_t len;
 
 		len = sizeof(client_addr);
-		sendto(socket_fd, (char *) packet, 2, MSG_CONFIRM, (const struct sockaddr*) &client_addr, len);
+		for(int i=0; i < client_count; i++){
+			sendto(socket_fd, (char *) packet, 2, MSG_CONFIRM, (const struct sockaddr*) &clients[i], len);
+		}
 	}else if(method.compare("\"setHumidity\"\n") == 0){
 		cout << "Setting Humidity actuator to: " << root["params"]["mode"] << endl;
 		uint8_t packet[] = {humid_act,root["params"]["mode"].asInt()};
 		socklen_t len;
 
 		len = sizeof(client_addr);
-		sendto(socket_fd, (char *) packet, 2, MSG_CONFIRM, (const struct sockaddr*) &client_addr, len);
+		for(int i=0; i < client_count; i++){
+			sendto(socket_fd, (char *) packet, 2, MSG_CONFIRM, (const struct sockaddr*) &clients[i], len);
+		}
+	}else if(method.compare("\"setLight\"\n") == 0){
+		cout << "Setting Light actuator to: " << root["params"]["mode"] << endl;
+		uint8_t packet[] = {light_act,root["params"]["mode"].asInt()};
+		socklen_t len;
+
+		len = sizeof(client_addr);
+		for(int i=0; i < client_count; i++){
+			sendto(socket_fd, (char *) packet, 2, MSG_CONFIRM, (const struct sockaddr*) &clients[i], len);
+		}
 	}else{
 		cout << "RPC Not recognised" << endl;
 	}
@@ -169,11 +194,12 @@ void mqtt_thread() {
 	Json::Value telemetry_object;
 	Json::FastWriter fastWriter;
 	std::string msg;
+	int actuators;
 
 	while (true) {
 
 		//Wait until ordered to connect
-
+		actuators = 0;
 		//Connect
 		if (!connected) {
 
@@ -189,16 +215,29 @@ void mqtt_thread() {
 
 		if (connected) {
 
-			//Send data
-			values val = val_q.back_clear();
+			actuators = msg_rec_notif.pop(2);
 
-			std::string msg = "";
+			if(actuators == 1){
+				//Send data
+				values val = val_q.back_clear();
 
-			msg = "{\"temperature\": " + std::to_string(val.temperature) + ",\"humidity\": " + std::to_string(val.humidity) + ",\"light\": " + to_string(val.light) + ",\"ph\": " + std::to_string(val.ph) +",\"tds\": " + std::to_string(val.tds) + ",\"waterLevel\": " + std::to_string(val.water_lev) + ",\"RGB_Red\":" + std::to_string(val.red) + ",\"RGB_Green\":" + std::to_string(val.green) +",\"RGB_Blue\": " + std::to_string(val.blue) + "}";
+				std::string msg = "";
 
-			std::cout << "Sending data..." << msg << std::endl;
+				msg = "{\"temperature_mean\": " + std::to_string(val.temperatureMean) + ",\"temperature_max\": " + std::to_string(val.temperatureMax) + ",\"temperature_min\": " + std::to_string(val.temperatureMin) + ",\"humidity_mean\": " + std::to_string(val.humidityMean) + ",\"humidity_min\": " + std::to_string(val.humidityMin) + ",\"humidity_max\": " + std::to_string(val.humidityMax) + ",\"lightMin\": " + to_string(val.lightMin) + ",\"lightMax\": " + to_string(val.lightMax) + ",\"lightMean\": " + to_string(val.lightMean) + ",\"ph\": " + std::to_string(val.ph) +",\"tds\": " + std::to_string(val.tds) + ",\"waterLevel\": " + std::to_string(val.water_lev) + ",\"RGB_Red\":" + std::to_string(val.red) + ",\"RGB_Green\":" + std::to_string(val.green) +",\"RGB_Blue\": " + std::to_string(val.blue) + "}";
 
-			client.publish("v1/devices/me/telemetry", msg);
+				std::cout << "Sending data..." << msg << std::endl;
+				client.publish("v1/devices/me/telemetry", msg);
+
+			}else if(actuators == 2){
+				actuators_t act = act_q.back_clear();
+				std::string msg = "";
+
+				msg = "{\"light\": " + std::to_string(act.lightAct) + ",\"air_cond\": " + std::to_string(act.airCondIsOn) + ",\"humidifier\": " + std::to_string(act.humidIsOn) + ",\"ph_control\": " + std::to_string(act.phControllerIsOn) + ",\"valve\": " + std::to_string(act.valveIsOpen) + "}";
+
+				std::cout << "Sending data..." << msg << std::endl;
+				client.publish("v1/devices/me/telemetry", msg);
+
+			}
 
 		}
 
@@ -248,8 +287,25 @@ void udp_thread(){
 
 	len = sizeof(client_addr);
 
+	int i = 0;
+	float tempMax = -5000, tempMin = 500, tempMean = 0;
+	int humidMax = 0, humidMean = 0, humidMin = 100;
+	long lightMax = 0, lightMean = 0, lightMin = 100000;
+
 	while(true){
 		int size = recvfrom(socket_fd, (char *)msg_rec, 5000, MSG_WAITALL, (struct sockaddr *) &client_addr, &len);
+
+		bool addClient = true;
+		for(int i = 0; i < 255; i++){
+			if(client_addr.sin_addr.s_addr == clients[i].sin_addr.s_addr){
+				cout << "Client found" << endl;
+				addClient = false;
+			}
+		}
+		if(addClient){
+			cout << "Client Not Found" << endl;
+			clients[client_count++] = client_addr;
+		}
 
 		msg_rec[size] = '\0';
 
@@ -260,12 +316,69 @@ void udp_thread(){
 
 		myfile << "[UDP] Message received" << ": " << msg_rec << " at " << dt << endl;
 
-		values result;
+		cout << "First character: " << hex << (int) msg_rec[0] << endl;
 
-		sscanf(msg_rec,"%ld %d,%d,%d %d %f %d %d %f", &(result.light), &(result.red), &(result.green), &(result.blue), &(result.humidity), &(result.temperature), &(result.water_lev), &(result.tds), &(result.ph));
+		if(msg_rec[0] == 0x2a){
+			char dummy;
+			actuators_t acts;
 
-		val_q.push(result);
+			cout << "Sendign actuator info" << endl;
 
+			sscanf(msg_rec,"%c %d %d %d %d %d", &dummy, &(acts.lightAct),&(acts.humidIsOn), &(acts.airCondIsOn), &(acts.valveIsOpen), &(acts.phControllerIsOn));
+
+
+
+			act_q.push(acts);
+
+			msg_rec_notif.push(2);
+
+		}else{
+			float templ;
+			int humidl;
+			long lightl;
+
+			values result;
+
+			sscanf(msg_rec,"%ld %d,%d,%d %d %f %d %d %f", &(lightl), &(result.red), &(result.green), &(result.blue), &(humidl), &(templ), &(result.water_lev), &(result.tds), &(result.ph));
+
+			tempMean += templ;
+			if(templ > tempMax)
+				tempMax = templ;
+			if(templ < tempMin)
+				tempMin = templ;
+
+			humidMean += humidl;
+			if(humidl < humidMin)
+				humidMin = humidl;
+			if(humidl > humidMax)
+				humidMax = humidl;
+
+			lightMean += lightl;
+			if(lightl < lightMin)
+				lightMin = lightl;
+			if(lightl > lightMax)
+				lightMax = lightl;
+
+			i++;
+
+			if(i==3){
+				cout << std::to_string(tempMean) << endl;
+				result.temperatureMax = tempMax;
+				result.temperatureMin = tempMin;
+				result.temperatureMean = tempMean / i;
+				result.humidityMax = humidMax;
+				result.humidityMin = humidMin;
+				result.humidityMean = humidMean / i;
+				result.lightMax = lightMax;
+				result.lightMin = lightMin;
+				result.lightMean = lightMean;
+				val_q.push(result);
+				msg_rec_notif.push(1);
+				i = 0;
+				tempMax = -5000, tempMin = 500, tempMean = 0;
+				humidMax = 0, humidMean = 0, humidMin = 100;
+			}
+		}
 	}
 }
 
