@@ -4,7 +4,7 @@
   * @author Alejandro Hontanilla Belinchón (a.hontanillab@alumnos.upm.es)
   * @brief  Main program and Display writing functions.
   *
-  * @note   End-of-degree work.
+  * @note   ASP-Project
   ******************************************************************************
 */
 
